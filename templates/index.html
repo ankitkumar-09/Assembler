@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SmartC IDE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ── Top bar ── -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="logo">SmartC</span>
+      <span class="logo-sub">IDE · Assembly · CLR</span>
+    </div>
+    <div class="topbar-controls">
+      <label class="ctrl-label">Language</label>
+      <select id="lang">
+        <option value="c++">C++</option>
+        <option value="c">C</option>
+      </select>
+
+      <label class="ctrl-label">Arch</label>
+      <select id="arch">
+        <option value="x86-64">x86-64</option>
+        <option value="arm64">ARM64</option>
+      </select>
+
+      <label class="ctrl-label">Opt</label>
+      <select id="opt">
+        <option value="-O0" selected>-O0</option>
+        <option value="-O1">-O1</option>
+        <option value="-O2">-O2</option>
+        <option value="-O3">-O3</option>
+        <option value="-Os">-Os</option>
+      </select>
+
+      <button class="btn-sm" id="cleanToggle" onclick="toggleClean()" style="padding:6px 12px;" title="Toggle clean/raw assembly">Clean</button>
+      <button class="btn-compile" id="compileBtn" onclick="compile()">
+        <span class="btn-icon">▶</span> Compile
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Tab bar ── -->
+  <nav class="tabbar">
+    <button class="tab active" data-tab="asm">Assembly Output</button>
+    <button class="tab"        data-tab="diff">Side-by-Side Diff</button>
+    <button class="tab"        data-tab="tokens">Token Lexer</button>
+    <button class="tab"        data-tab="clr">CLR Parser</button>
+  </nav>
+
+  <!-- ── Main panels ── -->
+  <main class="workspace">
+
+    <!-- ── ASSEMBLY TAB ── -->
+    <section class="panel-wrap" id="tab-asm">
+      <div class="split">
+        <div class="pane">
+          <div class="pane-header">
+            <span>source.cpp</span>
+            <span class="pill" id="langPill">C++</span>
+          </div>
+          <textarea id="srcCode" class="code-editor" spellcheck="false">#include &lt;iostream&gt;
+using namespace std;
+
+int factorial(int n) {
+    if (n &lt;= 1) return 1;
+    return n * factorial(n - 1);
+}
+
+int main() {
+    int n = 5;
+    cout &lt;&lt; "Factorial of " &lt;&lt; n
+         &lt;&lt; " = " &lt;&lt; factorial(n) &lt;&lt; endl;
+    return 0;
+}</textarea>
+        </div>
+        <div class="resizer" id="splitResizer"></div>
+        <div class="pane">
+          <div class="pane-header">
+            <span>output.asm</span>
+            <span class="pill pill-asm" id="archPill">x86-64 · Intel</span>
+          </div>
+          <div class="code-view" id="asmOut">
+            <span class="placeholder">Press <kbd>Compile</kbd> to generate assembly</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── DIFF TAB ── -->
+    <section class="panel-wrap hidden" id="tab-diff">
+      <div class="diff-legend">
+        <span><i class="dot dot-cpp"></i>C++ source</span>
+        <span><i class="dot dot-asm"></i>Assembly</span>
+      </div>
+      <div class="diff-scroll" id="diffOut">
+        <p class="placeholder">Compile first, then switch here.</p>
+      </div>
+    </section>
+
+    <!-- ── TOKEN LEXER TAB ── -->
+    <section class="panel-wrap hidden" id="tab-tokens">
+      <div class="tokens-header">
+        <span class="section-label">Lexer output</span>
+        <button class="btn-sm" onclick="runTokenize()">Re-tokenize</button>
+      </div>
+      <div class="token-legend">
+        <span class="tok keyword">keyword</span>
+        <span class="tok type">type</span>
+        <span class="tok identifier">identifier</span>
+        <span class="tok operator">operator</span>
+        <span class="tok number">literal</span>
+        <span class="tok string">string</span>
+        <span class="tok comment">comment</span>
+        <span class="tok punctuation">punctuation</span>
+      </div>
+      <div class="token-area" id="tokenArea">
+        <p class="placeholder">Compile or click Re-tokenize.</p>
+      </div>
+    </section>
+
+    <!-- ── CLR PARSER TAB ── -->
+    <section class="panel-wrap hidden" id="tab-clr">
+      <div class="clr-split">
+        <div class="clr-left">
+          <div class="section-label">Grammar (BNF — space-separated symbols)</div>
+          <textarea id="grammarInput" class="code-editor small" spellcheck="false">S -> a S b
+S -> a b</textarea>
+
+          <div class="section-label mt">Input string</div>
+          <div class="clr-input-row">
+            <input id="clrStr" type="text" value="aaabbb" placeholder="e.g. aaabbb or a b c" />
+            <button class="btn-compile small" onclick="parseCLR()">Parse</button>
+          </div>
+
+          <div class="grammar-hint">
+            <div class="hint-title">Grammar rules</div>
+            <ul>
+              <li>Non-terminals start with <code>Uppercase</code></li>
+              <li>Terminals are <code>lowercase</code> or symbols</li>
+              <li>Space-separated: <code>S -&gt; A B c</code></li>
+              <li>Multiple rules per non-terminal OK</li>
+              <li>Input: char-by-char OR space-separated</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="clr-right">
+          <div class="section-label">Parse result</div>
+          <div id="clrResult">
+            <p class="placeholder">Enter grammar and click Parse.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── Status bar ── -->
+  <footer class="statusbar">
+    <span id="statusMsg">Ready — GCC backend on localhost:5000</span>
+    <span id="statusTime"></span>
+  </footer>
+
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
