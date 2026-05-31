@@ -1,174 +1,280 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>SmartC IDE</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="/static/css/style.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Compiler Journey Visualizer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
 
 <div class="app">
 
-  <!-- ── Top bar ── -->
   <header class="topbar">
     <div class="topbar-left">
-      <span class="logo">SmartC</span>
-      <span class="logo-sub">IDE · Assembly · CLR</span>
+      <div class="logo-block">
+        <span class="logo-arrow">&#9654;</span>
+        <span class="logo">COMPILER JOURNEY</span>
+      </div>
+      <span class="logo-sub">See how source code becomes machine language</span>
     </div>
     <div class="topbar-controls">
-      <label class="ctrl-label">Language</label>
+      <label class="ctrl-label">LANG</label>
       <select id="lang">
         <option value="c++">C++</option>
         <option value="c">C</option>
       </select>
-
-      <label class="ctrl-label">Arch</label>
-      <select id="arch">
-        <option value="x86-64">x86-64</option>
-        <option value="arm64">ARM64</option>
-      </select>
-
-      <label class="ctrl-label">Opt</label>
+      <label class="ctrl-label">OPT</label>
       <select id="opt">
-        <option value="-O0" selected>-O0</option>
-        <option value="-O1">-O1</option>
-        <option value="-O2">-O2</option>
-        <option value="-O3">-O3</option>
-        <option value="-Os">-Os</option>
+        <option value="-O0">-O0 None</option>
+        <option value="-O1">-O1 Low</option>
+        <option value="-O2">-O2 Medium</option>
+        <option value="-O3">-O3 High</option>
       </select>
-
-      <button class="btn-sm" id="cleanToggle" onclick="toggleClean()" style="padding:6px 12px;" title="Toggle clean/raw assembly">Clean</button>
-      <button class="btn-compile" id="compileBtn" onclick="compile()">
-        <span class="btn-icon">▶</span> Compile
+      <button class="btn-compile" id="runBtn" onclick="startJourney()">
+        <span class="btn-icon">&#9654;</span> RUN JOURNEY
       </button>
     </div>
   </header>
 
-  <!-- ── Tab bar ── -->
-  <nav class="tabbar">
-    <button class="tab active" data-tab="asm">Assembly Output</button>
-    <button class="tab"        data-tab="diff">Side-by-Side Diff</button>
-    <button class="tab"        data-tab="tokens">Token Lexer</button>
-    <button class="tab"        data-tab="clr">CLR Parser</button>
-  </nav>
+  <div class="pipeline-bar">
+    <div class="pipe-step" id="pipe-0">
+      <div class="pipe-num">01</div>
+      <div class="pipe-info">
+        <div class="pipe-title">SOURCE</div>
+        <div class="pipe-sub">Input</div>
+      </div>
+    </div>
+    <div class="pipe-connector"><div class="pipe-line"></div></div>
+    <div class="pipe-step" id="pipe-1" data-phase="tokens" onclick="openPhaseModal('tokens')">
+      <div class="pipe-num">02</div>
+      <div class="pipe-info">
+        <div class="pipe-title">LEXER</div>
+        <div class="pipe-sub">Tokenize</div>
+      </div>
+    </div>
+    <div class="pipe-connector"><div class="pipe-line"></div></div>
+    <div class="pipe-step" id="pipe-2" data-phase="parse" onclick="openPhaseModal('parse')">
+      <div class="pipe-num">03</div>
+      <div class="pipe-info">
+        <div class="pipe-title">PARSER</div>
+        <div class="pipe-sub">Syntax</div>
+      </div>
+    </div>
+    <div class="pipe-connector"><div class="pipe-line"></div></div>
+    <div class="pipe-step" id="pipe-3" data-phase="semantic" onclick="openPhaseModal('semantic')">
+      <div class="pipe-num">04</div>
+      <div class="pipe-info">
+        <div class="pipe-title">SEMANTIC</div>
+        <div class="pipe-sub">Meaning</div>
+      </div>
+    </div>
+    <div class="pipe-connector"><div class="pipe-line"></div></div>
+    <div class="pipe-step" id="pipe-4" data-phase="asm" onclick="openPhaseModal('asm')">
+      <div class="pipe-num">05</div>
+      <div class="pipe-info">
+        <div class="pipe-title">CODEGEN</div>
+        <div class="pipe-sub">Assembly</div>
+      </div>
+    </div>
+    <div class="pipe-connector"><div class="pipe-line"></div></div>
+    <div class="pipe-step" id="pipe-5" data-phase="compare" onclick="openPhaseModal('compare')">
+      <div class="pipe-num">&#9733;</div>
+      <div class="pipe-info">
+        <div class="pipe-title">OPTIMIZE</div>
+        <div class="pipe-sub">Compare</div>
+      </div>
+    </div>
+  </div>
 
-  <!-- ── Main panels ── -->
-  <main class="workspace">
+  <main class="main-content">
 
-    <!-- ── ASSEMBLY TAB ── -->
-    <section class="panel-wrap" id="tab-asm">
-      <div class="split">
-        <div class="pane">
-          <div class="pane-header">
-            <span>source.cpp</span>
-            <span class="pill" id="langPill">C++</span>
-          </div>
-          <textarea id="srcCode" class="code-editor" spellcheck="false">#include &lt;iostream&gt;
+    <div class="editor-panel">
+      <div class="panel-header">
+        <span class="panel-title">// SOURCE_CODE</span>
+        <span class="hint">ctrl+enter to run</span>
+      </div>
+      <div class="editor-wrapper">
+        <div class="line-numbers" id="lineNumbers"></div>
+        <textarea id="srcCode" class="code-editor" spellcheck="false">#include &lt;iostream&gt;
 using namespace std;
 
-int factorial(int n) {
-    if (n &lt;= 1) return 1;
-    return n * factorial(n - 1);
+int add(int a, int b) {
+    return a + b;
 }
 
 int main() {
-    int n = 5;
-    cout &lt;&lt; "Factorial of " &lt;&lt; n
-         &lt;&lt; " = " &lt;&lt; factorial(n) &lt;&lt; endl;
+    int x = 5, y = 3;
+    cout &lt;&lt; "Sum = " &lt;&lt; add(x, y) &lt;&lt; endl;
     return 0;
 }</textarea>
+      </div>
+      <div class="editor-footer">
+        <span id="editorInfo" class="editor-info">12 lines · C++</span>
+      </div>
+    </div>
+
+    <div class="output-panel" id="outputPanel">
+
+      <div class="step-card collapsed" id="step-tokens">
+        <div class="step-header">
+          <div class="step-badge badge-lex">LEX</div>
+          <div class="step-header-content">
+            <div class="step-title">Lexical Analysis</div>
+            <div class="step-sub">Tokenizer — breaks source into smallest units</div>
+          </div>
+          <div class="step-status" id="status-tokens"></div>
+          <div class="step-chevron" id="chevron-step-tokens">&#8250;</div>
         </div>
-        <div class="resizer" id="splitResizer"></div>
-        <div class="pane">
-          <div class="pane-header">
-            <span>output.asm</span>
-            <span class="pill pill-asm" id="archPill">x86-64 · Intel</span>
+        <div class="step-body">
+          <div class="step-explain">
+            The <strong>Lexer</strong> scans your source character-by-character and groups them into <em>tokens</em> — the vocabulary of your programming language.
+          </div>
+          <div class="token-area" id="tokenArea">
+            <span class="placeholder-text">Waiting for lexer output…</span>
+          </div>
+          <div class="token-legend">
+            <span class="tok keyword">keyword</span>
+            <span class="tok type">type</span>
+            <span class="tok identifier">identifier</span>
+            <span class="tok operator">operator</span>
+            <span class="tok number">number</span>
+            <span class="tok string">string</span>
+            <span class="tok comment">comment</span>
+            <span class="tok punctuation">punct</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="step-card collapsed" id="step-parse">
+        <div class="step-header">
+          <div class="step-badge badge-syn">SYN</div>
+          <div class="step-header-content">
+            <div class="step-title">Syntax Analysis</div>
+            <div class="step-sub">Parser — verifies grammar &amp; builds parse tree</div>
+          </div>
+          <div class="step-status" id="status-parse"></div>
+          <div class="step-chevron" id="chevron-step-parse">&#8250;</div>
+        </div>
+        <div class="step-body">
+          <div class="step-explain">
+            The <strong>Parser</strong> checks if tokens follow the language's grammar rules and constructs a <em>parse tree</em> representing program structure.
+          </div>
+          <div class="parse-visual" id="parseVisual">
+            <span class="placeholder-text">Waiting for parser output…</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="step-card collapsed" id="step-semantic">
+        <div class="step-header">
+          <div class="step-badge badge-sem">SEM</div>
+          <div class="step-header-content">
+            <div class="step-title">Semantic Analysis</div>
+            <div class="step-sub">Type checker — validates meaning &amp; scope</div>
+          </div>
+          <div class="step-status" id="status-semantic"></div>
+          <div class="step-chevron" id="chevron-step-semantic">&#8250;</div>
+        </div>
+        <div class="step-body">
+          <div class="step-explain">
+            The <strong>Semantic Analyzer</strong> checks logical correctness — variable types match, functions are declared before use, scopes are consistent.
+          </div>
+          <div class="semantic-area" id="semanticArea">
+            <span class="placeholder-text">Waiting for semantic output…</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="step-card collapsed" id="step-asm">
+        <div class="step-header">
+          <div class="step-badge badge-gen">GEN</div>
+          <div class="step-header-content">
+            <div class="step-title">Code Generation</div>
+            <div class="step-sub">GCC — actual x86-64 assembly output</div>
+          </div>
+          <div class="step-status" id="status-asm"></div>
+          <div class="step-chevron" id="chevron-step-asm">&#8250;</div>
+        </div>
+        <div class="step-body">
+          <div class="step-explain">
+            The <strong>Code Generator</strong> converts the verified IR into real <em>x86-64 assembly</em> instructions your CPU executes. This is actual GCC output.
+          </div>
+          <div class="asm-controls">
+            <button class="btn-toggle active" id="btnClean" onclick="showClean()">CLEAN</button>
+            <button class="btn-toggle" id="btnRaw" onclick="showRaw()">RAW</button>
+            <span class="asm-stat" id="asmStat"></span>
           </div>
           <div class="code-view" id="asmOut">
-            <span class="placeholder">Press <kbd>Compile</kbd> to generate assembly</span>
+            <span class="placeholder-text">Waiting for GCC output…</span>
           </div>
         </div>
       </div>
-    </section>
 
-    <!-- ── DIFF TAB ── -->
-    <section class="panel-wrap hidden" id="tab-diff">
-      <div class="diff-legend">
-        <span><i class="dot dot-cpp"></i>C++ source</span>
-        <span><i class="dot dot-asm"></i>Assembly</span>
-      </div>
-      <div class="diff-scroll" id="diffOut">
-        <p class="placeholder">Compile first, then switch here.</p>
-      </div>
-    </section>
-
-    <!-- ── TOKEN LEXER TAB ── -->
-    <section class="panel-wrap hidden" id="tab-tokens">
-      <div class="tokens-header">
-        <span class="section-label">Lexer output</span>
-        <button class="btn-sm" onclick="runTokenize()">Re-tokenize</button>
-      </div>
-      <div class="token-legend">
-        <span class="tok keyword">keyword</span>
-        <span class="tok type">type</span>
-        <span class="tok identifier">identifier</span>
-        <span class="tok operator">operator</span>
-        <span class="tok number">literal</span>
-        <span class="tok string">string</span>
-        <span class="tok comment">comment</span>
-        <span class="tok punctuation">punctuation</span>
-      </div>
-      <div class="token-area" id="tokenArea">
-        <p class="placeholder">Compile or click Re-tokenize.</p>
-      </div>
-    </section>
-
-    <!-- ── CLR PARSER TAB ── -->
-    <section class="panel-wrap hidden" id="tab-clr">
-      <div class="clr-split">
-        <div class="clr-left">
-          <div class="section-label">Grammar (BNF — space-separated symbols)</div>
-          <textarea id="grammarInput" class="code-editor small" spellcheck="false">S -> a S b
-S -> a b</textarea>
-
-          <div class="section-label mt">Input string</div>
-          <div class="clr-input-row">
-            <input id="clrStr" type="text" value="aaabbb" placeholder="e.g. aaabbb or a b c" />
-            <button class="btn-compile small" onclick="parseCLR()">Parse</button>
+      <div class="step-card collapsed" id="step-compare">
+        <div class="step-header">
+          <div class="step-badge badge-cmp">OPT</div>
+          <div class="step-header-content">
+            <div class="step-title">Optimization Comparison</div>
+            <div class="step-sub">-O0 vs -O2 instruction count delta</div>
           </div>
-
-          <div class="grammar-hint">
-            <div class="hint-title">Grammar rules</div>
-            <ul>
-              <li>Non-terminals start with <code>Uppercase</code></li>
-              <li>Terminals are <code>lowercase</code> or symbols</li>
-              <li>Space-separated: <code>S -&gt; A B c</code></li>
-              <li>Multiple rules per non-terminal OK</li>
-              <li>Input: char-by-char OR space-separated</li>
-            </ul>
-          </div>
+          <div class="step-status" id="status-compare"></div>
+          <div class="step-chevron" id="chevron-step-compare">&#8250;</div>
         </div>
-
-        <div class="clr-right">
-          <div class="section-label">Parse result</div>
-          <div id="clrResult">
-            <p class="placeholder">Enter grammar and click Parse.</p>
+        <div class="step-body">
+          <div class="step-explain">
+            See the <strong>real impact</strong> of compiler optimization — how many instructions are eliminated when you enable <em>-O2</em> optimization flags.
+          </div>
+          <div class="compare-grid" id="compareGrid">
+            <span class="placeholder-text">Waiting for optimization data…</span>
           </div>
         </div>
       </div>
-    </section>
 
+    </div>
   </main>
 
-  <!-- ── Status bar ── -->
-  <footer class="statusbar">
-    <span id="statusMsg">Ready — GCC backend on localhost:5000</span>
-    <span id="statusTime"></span>
+  <footer class="statusbar" id="statusBar">
+    <div class="status-left">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusMsg">READY — Click "RUN JOURNEY" to begin</span>
+    </div>
+    <div class="status-right">
+      <span id="statusTime"></span>
+      <span class="status-sep">·</span>
+      <span>Compiler Journey v2.0</span>
+    </div>
   </footer>
 
+</div>
+
+<div class="phase-modal-overlay" id="phaseModalOverlay" onclick="closePhaseModal(event)">
+  <div class="phase-modal" id="phaseModal">
+    <div class="phase-modal-header">
+      <div class="phase-modal-title-block">
+        <span class="phase-modal-badge" id="modalBadge">LEX</span>
+        <div>
+          <div class="phase-modal-title" id="modalTitle">Analysis Phase</div>
+          <div class="phase-modal-sub" id="modalSub">Results Pipeline View</div>
+        </div>
+      </div>
+      <button class="phase-modal-close" onclick="closePhaseModal(event)">✕</button>
+    </div>
+    <div class="phase-modal-body" id="modalBody">
+      </div>
+  </div>
+</div>
+
+<div class="dialog-overlay" id="dialogOverlay">
+  <div class="dialog-box">
+    <div class="dialog-header">
+      <span id="dialogTitle">Result</span>
+      <button class="dialog-close" onclick="closeDialog()">✕</button>
+    </div>
+    <div class="dialog-content" id="dialogContent"></div>
+  </div>
 </div>
 
 <script src="/static/js/app.js"></script>

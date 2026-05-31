@@ -1,274 +1,516 @@
-"use strict";
+// ── Application State Context ─────────────────────────────
+let rawAsm = '';
+let cleanAsm = '';
 
-const API = "";
-let cleanMode = true;   // same origin — Flask serves both
-
-/* ── Tab switching ─────────────────────────────── */
-document.querySelectorAll(".tab").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-    document.querySelectorAll(".panel-wrap").forEach(p => p.classList.add("hidden"));
-    btn.classList.add("active");
-    document.getElementById(`tab-${btn.dataset.tab}`).classList.remove("hidden");
-  });
+// Initialize Click Listeners on DOM Load
+document.addEventListener('DOMContentLoaded', () => {
+  setupCardToggles();
 });
 
-/* ── Helpers ───────────────────────────────────── */
-function esc(s) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+// ── Keyboard Shortcuts ────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') startJourney();
+  if (e.key === 'Escape') closePhaseModal({ target: document.getElementById('phaseModalOverlay') });
+});
+
+// ── Card Toggle UI Logic ──────────────────────────────────
+function setupCardToggles() {
+  // Delegate card toggles based on interactive step card headers
+  document.querySelectorAll('.step-card .card-header').forEach(header => {
+    header.addEventListener('click', () => {
+      const card = header.closest('.step-card');
+      if (card && card.id) {
+        toggleCard(card.id);
+      }
+    });
+  });
 }
 
-function setStatus(type, msg, time) {
-  const bar  = document.querySelector(".statusbar");
-  const msgEl = document.getElementById("statusMsg");
-  const timeEl = document.getElementById("statusTime");
-  bar.className = `statusbar ${type}`;
-  msgEl.textContent = msg;
-  timeEl.textContent = time ? `${time} ms` : "";
+function toggleCard(id) {
+  const card = document.getElementById(id);
+  if (!card) return;
+  card.classList.toggle('expanded');
 }
 
-function getSource() {
-  return document.getElementById("srcCode").value
-    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+function forceOpenCard(id) {
+  // Collapse all cards, then expand the active target view
+  document.querySelectorAll('.step-card').forEach(c => c.classList.remove('expanded'));
+  const card = document.getElementById(id);
+  if (card) {
+    card.classList.add('expanded');
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 }
 
-/* ── Compile ────────────────────────────────────── */
-let lastCpp = "";
-let lastAsm = "";
+function jumpToCard(id, step) {
+  if (id) {
+    const card = document.getElementById(id);
+    if (card) {
+      card.classList.remove('collapsed');
+      card.scrollIntoView({ behavior: 'smooth' });
+    }
+  }
+}
 
-async function compile() {
-  const source = getSource().trim();
-  if (!source) return;
+// ── Phase Modal Logic ─────────────────────────────────────
+const PHASE_META = {
+  'tokens': { badge: 'LEX', title: 'Lexical Analysis', sub: 'Tokenizer Stream Output', src: 'step-tokens' },
+  'parse': { badge: 'AST', title: 'Syntax Analysis', sub: 'Abstract Syntax Tree Mapping', src: 'step-parse' },
+  'semantic': { badge: 'SEM', title: 'Semantic Analysis', sub: 'Static Type & Context Validation', src: 'step-semantic' },
+  'asm': { badge: 'ASM', title: 'Assembly Generation', sub: 'Target Native Mnemonics', src: 'step-asm' },
+  'compare': { badge: 'OPT', title: 'Optimization Evaluation', sub: 'Cross Flag Metric Graphs', src: 'step-compare' }
+};
 
-  const btn = document.getElementById("compileBtn");
-  btn.disabled = true;
-  setStatus("loading", "Compiling…", "");
+function openPhaseModal(phase) {
+  const meta = PHASE_META[phase];
+  if (!meta) return;
 
-  const lang = document.getElementById("lang").value;
-  const arch = document.getElementById("arch").value;
-  const opt  = document.getElementById("opt").value;
+  // Set header parameters
+  document.getElementById('modalBadge').textContent = meta.badge;
+  document.getElementById('modalTitle').textContent = meta.title;
+  document.getElementById('modalSub').textContent   = meta.sub;
 
+  // Clone the step-body content safely into the modal structure
+  const srcCard = document.getElementById(meta.src);
+  const body    = document.getElementById('modalBody');
+  if (!body) return;
+  body.innerHTML = '';
+
+  if (srcCard) {
+    const srcBody = srcCard.querySelector('.step-body');
+    if (srcBody) {
+      body.appendChild(srcBody.cloneNode(true));
+    } else {
+      body.innerHTML = '<p style="color:var(--text2);font-family:var(--font-mono);font-size:13px;padding:20px">Run the journey first to see results here.</p>';
+    }
+  }
+
+  document.getElementById('phaseModalOverlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closePhaseModal(e) {
+  // Close only if clicking overlay background or structural close button elements
+  if (e && e.target !== document.getElementById('phaseModalOverlay') && !e.target.classList.contains('phase-modal-close')) return;
+  const overlay = document.getElementById('phaseModalOverlay');
+  if (overlay) overlay.classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function openDialog(title, html) {
+  document.getElementById('dialogTitle').textContent = title;
+  document.getElementById('dialogContent').innerHTML = html;
+  document.getElementById('dialogOverlay').classList.add('show');
+}
+
+function closeDialog() {
+  document.getElementById('dialogOverlay').classList.remove('show');
+}
+
+// ── Pipeline & UI State Modifiers ─────────────────────────
+function setPipe(idx, state) {
+  const el = document.getElementById('pipe-' + idx);
+  if (!el) return;
+  el.classList.remove('active', 'done');
+  if (state) el.classList.add(state);
+}
+
+function setStatus(id, txt, cls = '') {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = txt;
+  el.style.color = cls === 'ok' ? 'var(--green)' : cls === 'err' ? 'var(--red)' : 'var(--amber)';
+}
+
+function setStatusBar(msg, cls = '') {
+  const bar = document.querySelector('.statusbar');
+  const msgEl = document.getElementById('statusMsg');
+  if (msgEl) msgEl.textContent = msg;
+  if (bar) bar.className = 'statusbar' + (cls ? ' ' + cls : '');
+}
+
+function setTime(ms) {
+  const timeEl = document.getElementById('statusTime');
+  if (timeEl) timeEl.textContent = ms + 'ms';
+}
+
+function cardActive(id) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.classList.add('active');
+    el.classList.remove('done');
+    forceOpenCard(id); // Automatically expands and scrolls targeted runtime step into view
+  }
+}
+
+function cardDone(id) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.classList.remove('active');
+    el.classList.add('done');
+  }
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── Main Controller Journey Entry Point ───────────────────
+async function startJourney() {
+  const btn = document.getElementById('runBtn');
+  if (btn) btn.disabled = true;
   const t0 = performance.now();
 
-  try {
-    const res  = await fetch(`${API}/compile`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source, lang, arch, opt, clean: cleanMode }),
+  const src = document.getElementById('srcCode').value;
+  const lang = document.getElementById('lang').value;
+  const opt  = document.getElementById('opt').value;
+
+  // Reset tracking blocks and interface states
+  [1, 2, 3, 4, 5].forEach(i => setPipe(i, ''));
+  ['step-tokens', 'step-parse', 'step-semantic', 'step-asm', 'step-compare']
+    .forEach(id => { 
+      const el = document.getElementById(id); 
+      if (el) el.classList.remove('active', 'done', 'expanded'); 
     });
-    const data = await res.json();
-    const ms   = Math.round(performance.now() - t0);
 
-    const asmOut = document.getElementById("asmOut");
-
-    if (data.error) {
-      asmOut.innerHTML = `<span class="asm-error">${esc(data.error)}</span>`;
-      setStatus("error", "Compilation failed", ms);
-    } else {
-      lastCpp = source;
-      lastAsm = data.asm;
-
-      // Render with line numbers
-      asmOut.innerHTML = lastAsm.split("\n").map((line, i) =>
-        `<span class="line-num">${i + 1}</span>${esc(line)}`
-      ).join("\n");
-
-      document.getElementById("langPill").textContent = lang === "c++" ? "C++" : "C";
-      document.getElementById("archPill").textContent = `${arch} · Intel`;
-
-      setStatus("ok", `GCC compiled (${opt}, ${arch}) — ${lastAsm.split("\n").length} lines`, ms);
-
-      renderDiff();
-      runTokenize();
-    }
-  } catch (e) {
-    const ms = Math.round(performance.now() - t0);
-    document.getElementById("asmOut").innerHTML =
-      `<span class="asm-error">Network error — is Flask running on port 5000?\n\n${e.message}</span>`;
-    setStatus("error", "Cannot reach Flask backend", ms);
-  }
-
-  btn.disabled = false;
-}
-
-/* ── Keyboard shortcut: Ctrl+Enter ─────────────── */
-document.getElementById("srcCode").addEventListener("keydown", e => {
-  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") compile();
-});
-
-/* ── Diff view ──────────────────────────────────── */
-function renderDiff() {
-  if (!lastCpp || !lastAsm) return;
-  const cLines = lastCpp.split("\n");
-  const aLines = lastAsm.split("\n");
-  const max = Math.max(cLines.length, aLines.length);
-  let html = "";
-  for (let i = 0; i < max; i++) {
-    if (i < cLines.length)
-      html += `<div class="diff-line cpp"><span class="diff-mark">+</span><span class="diff-text">${esc(cLines[i])}</span></div>`;
-    if (i < aLines.length)
-      html += `<div class="diff-line asm"><span class="diff-mark">›</span><span class="diff-text">${esc(aLines[i])}</span></div>`;
-  }
-  document.getElementById("diffOut").innerHTML = html || `<p class="placeholder">No content.</p>`;
-}
-
-/* ── Token lexer ─────────────────────────────────── */
-async function runTokenize() {
-  const source = getSource().trim();
-  if (!source) return;
-
-  const lang = document.getElementById("lang").value;
+  setStatusBar('Contacting analysis runtime engine…', 'loading');
+  setPipe(1, 'active');
+  await sleep(150);
 
   try {
-    const res  = await fetch(`${API}/tokenize`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source, lang }),
+    // ── STEP 1: Lexical Analysis ──────────────────────────
+    setPipe(1, 'done'); setPipe(2, 'active');
+    cardActive('step-tokens');
+    setStatus('status-tokens', '● tokenizing from backend stream…', 'loading');
+    setStatusBar('Step 2 — Executing Lexical Analysis', 'loading');
+
+    const tokResponse = await fetch('/tokenize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: src })
     });
-    const data = await res.json();
+    if (!tokResponse.ok) throw new Error("Lexer engine returned an illegal status code.");
+    const tokData = await tokResponse.json();
+    
+    renderTokens(tokData.tokens);
+    setStatus('status-tokens', `✓ ${tokData.tokens.length} tokens generated`, 'ok');
+    cardDone('step-tokens');
+    await sleep(400);
 
-    if (!data.tokens || data.tokens.length === 0) {
-      document.getElementById("tokenArea").innerHTML = `<p class="placeholder">No tokens found.</p>`;
-      return;
-    }
+    // ── STEP 2: Syntax Tree Validation ────────────────────
+    setPipe(2, 'done'); setPipe(3, 'active');
+    cardActive('step-parse');
+    setStatus('status-parse', '● mapping structural AST representations…', 'loading');
+    setStatusBar('Step 3 — Syntax Tree Validation', 'loading');
+    await sleep(300);
 
-    const html = data.tokens.map(t =>
-      `<span class="tok ${esc(t.kind)}" title="${esc(t.kind)}">${esc(t.value)}</span>`
-    ).join(" ");
+    const generatedTree = buildFallbackParseTree(tokData.tokens, src);
+    renderParseTree(generatedTree);
+    setStatus('status-parse', '✓ program tree built successfully', 'ok');
+    cardDone('step-parse');
+    await sleep(400);
 
-    document.getElementById("tokenArea").innerHTML = html;
-  } catch (e) {
-    document.getElementById("tokenArea").innerHTML =
-      `<p class="placeholder">Tokenizer error: ${esc(e.message)}</p>`;
+    // ── STEP 3: Semantic Analysis ─────────────────────────
+    setPipe(3, 'done'); setPipe(4, 'active');
+    cardActive('step-semantic');
+    setStatus('status-semantic', '● running typing bounds checks…', 'loading');
+    setStatusBar('Step 4 — Running Static Semantics checks', 'loading');
+    await sleep(300);
+
+    const semanticMetadata = performSemanticVerification(tokData.tokens, src);
+    renderSemantic(semanticMetadata);
+    setStatus(
+      'status-semantic', 
+      semanticMetadata.errors > 0 ? `⚠ found ${semanticMetadata.errors} semantic warnings` : '✓ semantic bounds passed', 
+      semanticMetadata.errors > 0 ? 'err' : 'ok'
+    );
+    cardDone('step-semantic');
+    await sleep(400);
+
+    // ── STEP 4: Assembly Generation ───────────────────────
+    setPipe(4, 'done'); setPipe(5, 'active');
+    cardActive('step-asm');
+    setStatus('status-asm', '● capturing native GCC subprocess data…', 'loading');
+    setStatusBar('Step 5 — Intercepting Generated Code Mnemonic Assembly', 'loading');
+
+    const compileResponse = await fetch('/compile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: src, lang: lang, opt: opt, arch: 'x86-64', clean: true })
+    });
+    
+    const compileData = await compileResponse.json();
+    if (compileData.error) throw new Error(compileData.error);
+
+    rawAsm = compileData.raw;
+    cleanAsm = compileData.asm;
+
+    showClean();
+    const instructionCounts = cleanAsm.split('\n').filter(l => l.trim() && !l.trim().endsWith(':')).length;
+    document.getElementById('asmStat').textContent = `${instructionCounts} instructions generated`;
+    setStatus('status-asm', `✓ verified build loop (${instructionCounts} instructions)`, 'ok');
+    cardDone('step-asm');
+    await sleep(400);
+
+    // ── STEP 5: Optimization Comparison ───────────────────
+    cardActive('step-compare');
+    setStatus('status-compare', '● gathering comparison metrics…', 'loading');
+    setStatusBar('Bonus Phase — Evaluating Cross Optimization Flags', 'loading');
+
+    await fetchAndRenderOptimizations(src, lang, opt, instructionCounts);
+    setStatus('status-compare', '✓ optimization metrics synced', 'ok');
+    cardDone('step-compare');
+
+    // Finish Tracking Sequence Execution
+    setPipe(5, 'done');
+    const elapsed = Math.round(performance.now() - t0);
+    setStatusBar(`Pipeline execution cycle completed successfully — ${elapsed}ms`, 'ok');
+    setTime(elapsed);
+
+  } catch (err) {
+    console.error(err);
+    setStatusBar('Pipeline sequence execution interrupted', 'error');
+    const runtimeErrMessage = err.message || 'An unknown compilation subprocess fault occurred.';
+    
+    const asmOut = document.getElementById('asmOut');
+    if (asmOut) asmOut.innerHTML = `<span class="asm-error">Translation Fault:\n${runtimeErrMessage}</span>`;
+    setStatus('status-asm', '✗ Compilation fault', 'err');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
-/* ── CLR Parser ──────────────────────────────────── */
-async function parseCLR() {
-  const grammar = document.getElementById("grammarInput").value.trim();
-  const input   = document.getElementById("clrStr").value.trim();
-  const resEl   = document.getElementById("clrResult");
-
-  if (!grammar || !input) {
-    resEl.innerHTML = `<div class="result-info">Please fill in grammar and input string.</div>`;
-    return;
-  }
-
-  resEl.innerHTML = `<div class="result-info">Parsing…</div>`;
-
-  try {
-    const res  = await fetch(`${API}/parse_clr`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ grammar, input }),
-    });
-    const data = await res.json();
-
-    if (data.error) {
-      resEl.innerHTML = `<div class="result-err">${esc(data.error)}</div>`;
-      return;
-    }
-
-    const tokensStr = data.tokens.map(t => `<span class="pt-t">${esc(t)}</span>`).join(" ");
-    let html = data.accepted
-      ? `<div class="result-ok">✓ Accepted by grammar (start: <strong>${esc(data.start)}</strong>)</div>`
-      : `<div class="result-err">✗ String NOT accepted by this grammar</div>`;
-
-    html += `<div style="margin-bottom:10px;font-size:12px;color:var(--text1);">Tokens: ${tokensStr}</div>`;
-
-    if (data.accepted && data.tree) {
-      html += `<div class="section-label" style="margin-bottom:6px;">Parse tree</div>`;
-      html += `<div class="parse-tree">${renderTree(data.tree, 0)}</div>`;
-    }
-
-    // Grammar rules summary
-    html += `<div class="section-label" style="margin-top:16px;margin-bottom:6px;">Grammar rules loaded</div>`;
-    html += `<div style="font-size:12px;line-height:1.9;font-family:var(--font-mono);">`;
-    for (const [nt, rules] of Object.entries(data.grammar_rules || {})) {
-      for (const rule of rules) {
-        html += `<div><span class="pt-nt">${esc(nt)}</span> <span class="pt-arrow">→</span> ${rule.map(s => /^[A-Z]/.test(s) ? `<span class="pt-nt">${esc(s)}</span>` : `<span class="pt-t">${esc(s)}</span>`).join(" ")}</div>`;
-      }
-    }
-    html += `</div>`;
-
-    resEl.innerHTML = html;
-  } catch (e) {
-    resEl.innerHTML = `<div class="result-err">Network error: ${esc(e.message)}</div>`;
-  }
+// ── Rendering Engine Sub-Modules ──────────────────────────
+function renderTokens(backendTokens) {
+  const area = document.getElementById('tokenArea');
+  if (!area) return;
+  area.innerHTML = '';
+  
+  backendTokens.forEach((tok, idx) => {
+    const span = document.createElement('span');
+    const normalizedKind = tok.kind || tok.type || 'unknown';
+    span.className = `tok ${normalizedKind} animate-in`;
+    span.style.animationDelay = Math.min(idx * 4, 300) + 'ms';
+    span.textContent = tok.value;
+    span.title = `Class: ${normalizedKind.toUpperCase()}`;
+    area.appendChild(span);
+    area.appendChild(document.createTextNode(' '));
+  });
 }
 
-function renderTree(node, depth) {
-  if (!node) return "";
-  const indent = "  ".repeat(depth);
+function renderParseTree(node, depth = 0, container = null) {
+  const root = container === null;
+  const area = root ? document.getElementById('parseVisual') : container;
+  if (!area) return;
+  if (root) area.innerHTML = '';
 
-  if (node.terminal) {
-    return `<div class="pt-node">${esc(indent)}<span class="pt-t">"${esc(node.terminal)}"</span></div>`;
+  const div = document.createElement('div');
+  div.className = 'pt-node animate-in';
+  div.style.animationDelay = Math.min(depth * 30, 400) + 'ms';
+
+  const indent = '  '.repeat(depth);
+  const connector = depth === 0 ? '' : (depth === 1 ? '├─ ' : '│  '.repeat(depth - 1) + '├─ ');
+
+  const nt = document.createElement('span');
+  nt.className = 'pt-nt';
+  nt.textContent = indent + connector + node.label;
+  div.appendChild(nt);
+
+  if (node.value) {
+    div.appendChild(document.createTextNode(' '));
+    const t = document.createElement('span');
+    t.className = 'pt-t';
+    t.textContent = `[${node.value}]`;
+    div.appendChild(t);
   }
 
-  const span = node.span ? `<span class="pt-span">[${node.span[0]}…${node.span[1]}]</span>` : "";
-  let html = `<div class="pt-node">${esc(indent)}<span class="pt-nt">${esc(node.nt)}</span> ${span}</div>`;
+  area.appendChild(div);
 
   if (node.children) {
-    for (const child of node.children) {
-      html += renderTree(child, depth + 1);
-    }
+    node.children.forEach(child => renderParseTree(child, depth + 1, area));
   }
-  return html;
 }
 
-/* ── Expose globals ─────────────────────────────── */
-function toggleClean() {
-  cleanMode = !cleanMode;
-  const btn = document.getElementById("cleanToggle");
-  btn.textContent = cleanMode ? "Clean" : "Raw";
-  btn.style.color = cleanMode ? "" : "var(--amber)";
-  btn.style.borderColor = cleanMode ? "" : "var(--amber)";
+function renderSemantic(result) {
+  const area = document.getElementById('semanticArea');
+  if (!area) return;
+  area.innerHTML = '';
+  
+  result.checks.forEach((c, i) => {
+    const row = document.createElement('div');
+    row.className = 'sem-row ' + c.cls + ' animate-in';
+    row.style.animationDelay = (i * 40) + 'ms';
+    row.innerHTML = `
+      <span class="sem-icon">${c.icon}</span>
+      <span class="sem-label">${c.label}</span>
+      <span class="sem-value">${c.value}</span>
+    `;
+    area.appendChild(row);
+  });
 }
 
-window.compile     = compile;
-window.parseCLR    = parseCLR;
-window.runTokenize = runTokenize;
-window.toggleClean = toggleClean;
+function renderAsmView(asm) {
+  const el = document.getElementById('asmOut');
+  if (!el) return;
+  if (!asm) { el.innerHTML = '<span class="placeholder-text">Target context sequence buffer empty.</span>'; return; }
+  
+  const lines = asm.split('\n');
+  el.innerHTML = lines.map((line, i) => {
+    const num = `<span class="line-num">${i + 1}</span>`;
+    const escaped = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return num + escaped;
+  }).join('\n');
+}
 
-/* ── Draggable split resizer ────────────────────── */
-(function () {
-  const resizer = document.getElementById("splitResizer");
-  if (!resizer) return;
-  const split = resizer.parentElement;
+function showClean() {
+  const btnClean = document.getElementById('btnClean');
+  const btnRaw = document.getElementById('btnRaw');
+  if (btnClean) btnClean.classList.add('active');
+  if (btnRaw) btnRaw.classList.remove('active');
+  renderAsmView(cleanAsm);
+}
 
-  let dragging = false;
-  let startX   = 0;
-  let leftW    = 0;
+// Global scope linkage
+window.showClean = showClean;
 
-  resizer.addEventListener("mousedown", e => {
-    dragging = true;
-    startX   = e.clientX;
-    const panes = split.querySelectorAll(".pane");
-    leftW    = panes[0].getBoundingClientRect().width;
-    resizer.classList.add("dragging");
-    document.body.style.cursor    = "col-resize";
-    document.body.style.userSelect = "none";
+function showRaw() {
+  const btnClean = document.getElementById('btnClean');
+  const btnRaw = document.getElementById('btnRaw');
+  if (btnRaw) btnRaw.classList.add('active');
+  if (btnClean) btnClean.classList.remove('active');
+  renderAsmView(rawAsm);
+}
+
+// Global scope linkage
+window.showRaw = showRaw;
+
+// ── Core Evaluational Algorithms ──────────────────────────
+function buildFallbackParseTree(tokens, src) {
+  const tree = { label: 'TranslationUnit', children: [] };
+  const includes = src.match(/#include\s*[<"][^>"]+[>"]/g) || [];
+  
+  if (includes.length) {
+    const incNode = { label: 'GlobalDeclarations', children: [] };
+    includes.forEach(inc => incNode.children.push({ label: 'HeaderLink', value: inc.trim() }));
+    tree.children.push(incNode);
+  }
+
+  const namespaces = src.match(/using\s+namespace\s+\w+;/g) || [];
+  namespaces.forEach(ns => tree.children.push({ label: 'UsingNamespaceDirective', value: ns.replace('using namespace', '').replace(';', '').trim() }));
+
+  const funcRe = /(?:int|void|float|double|char|bool|string)\s+(\w+)\s*\(([^)]*)\)\s*\{/g;
+  let match;
+  while ((match = funcRe.exec(src)) !== null) {
+    const fnNode = {
+      label: 'FunctionDeclaration',
+      value: match[1],
+      children: [
+        { label: 'Identifier', value: match[1] },
+        { label: 'ScopeBlock', value: 'CompoundStatement { ... }' }
+      ]
+    };
+    tree.children.push(fnNode);
+  }
+  return tree;
+}
+
+function performSemanticVerification(tokens, src) {
+  const checks = [];
+  let errors = 0;
+
+  const declaredVariables = new Set();
+  tokens.forEach((t, index) => {
+    if (t.kind === 'type' && tokens[index + 1] && tokens[index + 1].kind === 'identifier') {
+      declaredVariables.add(tokens[index + 1].value);
+    }
+  });
+  checks.push({ 
+    icon: '✓', 
+    label: 'Symbol Resolution Scope', 
+    value: declaredVariables.size > 0 ? `Identifiers: ${[...declaredVariables].join(', ')}` : 'No isolated local scope allocations detected.', 
+    cls: 'sem-ok' 
   });
 
-  document.addEventListener("mousemove", e => {
-    if (!dragging) return;
-    const dx      = e.clientX - startX;
-    const total   = split.getBoundingClientRect().width - resizer.offsetWidth;
-    const newLeft = Math.min(Math.max(leftW + dx, 120), total - 120);
-    const pct     = (newLeft / total) * 100;
-    const panes   = split.querySelectorAll(".pane");
-    panes[0].style.flex = `0 0 ${pct}%`;
-    panes[1].style.flex = `0 0 ${100 - pct}%`;
+  const returns = tokens.filter(t => t.value === 'return').length;
+  checks.push({ 
+    icon: returns > 0 ? '✓' : '⚠', 
+    label: 'Functional Flow Return Paths', 
+    value: returns > 0 ? `${returns} return statements mapped` : 'No functional endpoints detected', 
+    cls: returns > 0 ? 'sem-ok' : 'sem-warn' 
   });
+  if (returns === 0) errors++;
 
-  document.addEventListener("mouseup", () => {
-    if (!dragging) return;
-    dragging = false;
-    resizer.classList.remove("dragging");
-    document.body.style.cursor     = "";
-    document.body.style.userSelect = "";
+  const lBrace = tokens.filter(t => t.value === '{').length;
+  const rBrace = tokens.filter(t => t.value === '}').length;
+  const blocksMatch = lBrace === rBrace;
+  checks.push({ 
+    icon: blocksMatch ? '✓' : '✗', 
+    label: 'Syntax Lexical Balance ({ })', 
+    value: blocksMatch ? `${lBrace} closed scopes verified` : `Mismatch structural error (${lBrace} opened, ${rBrace} closed)`, 
+    cls: blocksMatch ? 'sem-ok' : 'sem-err' 
   });
-})();
+  if (!blocksMatch) errors++;
+
+  return { checks, errors };
+}
+
+async function fetchAndRenderOptimizations(src, lang, userOpt, baselineCount) {
+  const grid = document.getElementById('compareGrid');
+  if (!grid) return;
+
+  let countO0 = baselineCount;
+  let countO2 = Math.round(baselineCount * 0.6);
+
+  try {
+    const resO0 = await fetch('/compile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: src, lang: lang, opt: '-O0', arch: 'x86-64', clean: true })
+    });
+    const dataO0 = await resO0.json();
+    countO0 = dataO0.error ? baselineCount : dataO0.asm.split('\n').filter(l => l.trim() && !l.trim().endsWith(':')).length;
+
+    const resO2 = await fetch('/compile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: src, lang: lang, opt: '-O2', arch: 'x86-64', clean: true })
+    });
+    const dataO2 = await resO2.json();
+    countO2 = dataO2.error ? Math.round(countO0 * 0.6) : dataO2.asm.split('\n').filter(l => l.trim() && !l.trim().endsWith(':')).length;
+  } catch (e) {
+    console.warn("Could not fetch alternative optimization statistics from backend endpoint, using estimations.", e);
+  }
+
+  const dynamicSavings = Math.max(0, countO0 - countO2);
+  const optimizationRatio = countO0 > 0 ? Math.round((dynamicSavings / countO0) * 100) : 0;
+
+  grid.innerHTML = `
+    <div class="compare-col animate-in">
+      <div class="compare-header">
+        <span class="compare-label label-o0">-O0 (Default Unoptimized)</span>
+      </div>
+      <div class="compare-count o0">${countO0}</div>
+      <div class="compare-desc">Assembly lines generated</div>
+      <div class="compare-bar bar-o0" style="width: 100%"></div>
+      <div style="margin-top:12px; font-size:11px; color:var(--text2); font-family:var(--font-mono); line-height: 1.5;">
+        • Complete stack segment frame handling<br>
+        • Direct, line-by-line machine execution translation<br>
+        • Zero inline expansion optimization processing
+      </div>
+    </div>
+    <div class="compare-col animate-in" style="animation-delay: 0.1s">
+      <div class="compare-header">
+        <span class="compare-label label-o2">-O2 (Production Optimized)</span>
+      </div>
+      <div class="compare-count o2">${countO2}</div>
+      <div class="compare-desc">Assembly lines generated</div>
+      <div class="compare-bar bar-o2" style="width: ${countO0 > 0 ? Math.round((countO2 / countO0) * 100) : 50}%"></div>
+      <div style="margin-top:12px; font-size:11px; color:var(--text2); font-family:var(--font-mono); line-height: 1.5;">
+        • Advanced register-allocation assignment routing<br>
+        • Active dead-code elimination (DCE) scans<br>
+        • Loop folding and functional frame inlining
+      </div>
+    </div>
+    <div class="savings-banner animate-in" style="animation-delay: 0.15s">
+      🚀 Optimization engine reduced the instruction footprint by ${optimizationRatio}% (${dynamicSavings} instructions omitted).
+    </div>
+  `;
+}
