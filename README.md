@@ -101,3 +101,4 @@ smartc-ide/
 - **Parser**: CYK algorithm with CNF binarisation
 - **Frontend**: Vanilla JS + CSS (no frameworks, no npm)
 - **Font**: JetBrains Mono + Space Mono
+# smartc-ide
